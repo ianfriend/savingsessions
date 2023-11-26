@@ -117,7 +117,6 @@ class API:
   }
 }"""
         data = self._request(query, key=self.api_key)
-        print(data)
         self.token = data["obtainKrakenToken"]["token"]
 
     def accounts(self):

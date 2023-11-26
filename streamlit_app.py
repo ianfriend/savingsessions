@@ -50,7 +50,7 @@ def main():
         st.stop()
 
     st.experimental_set_query_params(api_key=api_key)
-    st.info("Tip: bookmark this url to return with your API key remembered.", icon="ℹ️")
+    st.info("Tip: bookmark this url to return with your API key remembered.", icon="🔖")
 
     bar = st.progress(0, text="Authenticating...")
 
