@@ -41,11 +41,16 @@ def main():
     st.markdown(
         "Find this in your online dashboard: https://octopus.energy/dashboard/developer/"
     )
-    api_key = Path("api_key.txt")
-    value = api_key.read_text() if api_key.exists() else ""
-    api_key = st.text_input("API key:", value=value, placeholder="sk_live_...")
+    if "api_key" not in st.session_state and (
+        api_key := st.experimental_get_query_params().get("api_key")
+    ):
+        st.session_state["api_key"] = api_key[0]
+    api_key = st.text_input("API key:", key="api_key", placeholder="sk_live_...")
     if not api_key:
         st.stop()
+
+    st.experimental_set_query_params(api_key=api_key)
+    st.info("Tip: bookmark this url to return with your API key remembered.", icon="ℹ️")
 
     bar = st.progress(0, text="Authenticating...")
 
