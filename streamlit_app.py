@@ -7,6 +7,25 @@ import streamlit as st
 from api import API, AuthenticationError, ElectricityMeterPoint
 
 
+# timestamp, session length (half hours), points awarded per kwh saved
+SAVING_SESSIONS = [
+    ("2023-11-16 17:30", 2, 1800),
+]
+
+
+def total(api: API, meter_point: ElectricityMeterPoint, ts: datetime, hh: int) -> float:
+    readings = api.half_hourly_readings(
+        mpan=meter_point.mpan,
+        meter=meter_point.meters[0].id,
+        start_at=ts,
+        first=hh,
+    )
+    if len(readings) == 0:
+        raise ValueError("missing readings")
+    total = sum(reading.value for reading in readings)
+    return total
+
+
 def error(msg: str):
     st.error(msg, icon="⚠️")
     st.stop()
@@ -56,46 +75,45 @@ def main():
     mpans: dict[str, ElectricityMeterPoint] = {}
     for agreement in agreements:
         product = api.energy_product(agreement.tariff.productCode)
-        mpans[product.direction] = agreement.meterPoint
+        if product.direction in mpans:
+            st.warning(
+                "Multiple %s meterpoints, using first" % product.direction, icon="⚠️"
+            )
+        else:
+            mpans[product.direction] = agreement.meterPoint
+            if len(agreement.meterPoint.meters) > 1:
+                st.warning(
+                    "Meterpoint %s has multiple meters, using first"
+                    % agreement.meterPoint.mpan,
+                    icon="⚠️",
+                )
         if debug:
             st.write(product)
 
     if "IMPORT" not in mpans:
-        error("Import meter not found")
+        error("Import meterpoint not found")
 
-    # timestamp, session length (half hours), points awarded per kwh saved
-    SAVING_SESSIONS = [
-        ("2023-11-16 17:30", 2, 1800),
-    ]
-
-    def total(meter_point: ElectricityMeterPoint, ts: datetime, hh: int) -> float:
-        readings = api.half_hourly_readings(
-            mpan=meter_point.mpan,
-            meter=meter_point.meters[0].id,
-            start_at=ts,
-            first=hh,
-        )
-        if len(readings) == 0:
-            raise ValueError("missing readings")
-        total = sum(reading.value for reading in readings)
-        return total
+    if "EXPORT" not in mpans:
+        st.info("Import meter only", icon="ℹ️")
 
     bar.progress(0.8, text="Getting readings...")
     rows = []
+    missing = []
     for ts, hh, reward in SAVING_SESSIONS:
         ts = cast(datetime, pendulum.parser.parse(ts))
         row: dict[str, Any] = {"timestamp": ts}
         try:
-            row["import"] = total(mpans["IMPORT"], ts, hh)
-            row["export"] = 0
-            if meter_point := mpans["EXPORT"]:
-                row["export"] = total(mpans["EXPORT"], ts, hh)
-            row["saved"] = row["export"] - row["import"]
+            row["import"] = total(api, mpans["IMPORT"], ts, hh)
+            if meter_point := mpans.get("EXPORT"):
+                row["export"] = total(api, meter_point, ts, hh)
+                row["saved"] = row["export"] - row["import"]
+            else:
+                row["saved"] = -row["import"]
             row["reward"] = max(int(row["saved"] * reward), 0)
             row["earnings"] = row["reward"] / 800
+            rows.append(row)
         except ValueError:
-            row["import"] = "Calculating..."
-        rows.append(row)
+            missing.append(ts)
 
     bar.progress(1.0, text="Done")
     st.subheader("Results")
@@ -113,6 +131,8 @@ def main():
             "earnings": st.column_config.NumberColumn("Earnings", format="£%.2f"),
         },
     )
+    for ts in missing:
+        st.info(f"Session on {ts:%Y/%m/%d} is awaiting readings...", icon="⌛")
 
 
 main()
