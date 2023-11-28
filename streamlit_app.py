@@ -43,13 +43,15 @@ def total(api: API, meter_point: ElectricityMeterPoint, ts: datetime, hh: int):
     return total
 
 
-def calculate(api: API, mpans: dict, ss: SavingSession):
+def calculate(api: API, mpans: dict, ss: SavingSession, tick):
     try:
         ss_import = total(api, mpans["IMPORT"], ss.timestamp, ss.hh)
+        next(tick)
         if meter_point := mpans.get("EXPORT"):
             ss_export = total(api, meter_point, ss.timestamp, ss.hh)
         else:
             ss_export = np.zeros(ss.hh)  # no export
+        next(tick)
     except ValueError:
         return None
 
@@ -69,8 +71,10 @@ def calculate(api: API, mpans: dict, ss: SavingSession):
             continue
         try:
             baseline += total(api, mpans["IMPORT"], dt, ss.hh)
+            next(tick)
             if meter_point := mpans.get("EXPORT"):
                 baseline -= total(api, meter_point, dt, ss.hh)
+                next(tick)
             days += 1
 
             if days == baseline_days:
@@ -130,7 +134,7 @@ def main():
     except AuthenticationError:
         error("Authentication error, check your API key")
 
-    bar.progress(0.2, text="Getting account...")
+    bar.progress(0.05, text="Getting account...")
     accounts = api.accounts()
     if not accounts:
         error("No accounts found")
@@ -138,7 +142,7 @@ def main():
 
     if debug:
         st.write(account)
-    bar.progress(0.4, text="Getting meters...")
+    bar.progress(0.1, text="Getting meters...")
     agreements = api.agreements(account.number)
     if debug:
         for agreement in agreements:
@@ -146,7 +150,7 @@ def main():
     if not agreements:
         error("No agreements on account")
 
-    bar.progress(0.5, text="Getting tariffs...")
+    bar.progress(0.15, text="Getting tariffs...")
     mpans: dict[str, ElectricityMeterPoint] = {}
     for agreement in agreements:
         product = api.energy_product(agreement.tariff.productCode)
@@ -171,11 +175,17 @@ def main():
     if "EXPORT" not in mpans:
         st.info("Import meter only", icon="ℹ️")
 
-    bar.progress(0.8, text="Getting readings...")
     rows = []
     missing = []
+    total_ticks = 22 * len(SAVING_SESSIONS)
+
+    def tick():
+        for i in range(total_ticks):
+            bar.progress(0.2 + 0.8 * i / total_ticks, text="Getting readings...")
+            yield
+
     for ss in SAVING_SESSIONS:
-        row = calculate(api, mpans, ss)
+        row = calculate(api, mpans, ss, tick())
         if row is not None:
             rows.append(row)
         else:
