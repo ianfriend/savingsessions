@@ -187,6 +187,8 @@ def main():
         for i in range(total_ticks):
             bar.progress(0.2 + 0.8 * i / total_ticks, text="Getting readings...")
             yield
+        while True:
+            yield
 
     ticks = tick()
     for ss in SAVING_SESSIONS:
