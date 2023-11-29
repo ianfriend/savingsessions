@@ -21,7 +21,7 @@ def ss(timestamp: str, hh: int, reward: int):
 
 SAVING_SESSIONS = [
     ss("2023-11-16 17:30", 2, 1800),
-    ss("2023-11-28 17:00", 3, 3200),
+    ss("2023-11-29 17:00", 3, 3200),
 ]
 
 
@@ -30,7 +30,7 @@ def weekday(day):
     return pendulum.MONDAY <= day.day_of_week <= pendulum.FRIDAY
 
 
-def total(api: API, meter_point: ElectricityMeterPoint, ts: datetime, hh: int):
+def get_readings(api: API, meter_point: ElectricityMeterPoint, ts: datetime, hh: int):
     readings = api.half_hourly_readings(
         mpan=meter_point.mpan,
         meter=meter_point.meters[0].id,
@@ -39,22 +39,10 @@ def total(api: API, meter_point: ElectricityMeterPoint, ts: datetime, hh: int):
     )
     if len(readings) == 0:
         raise ValueError("missing readings")
-    total = np.array([reading.value for reading in readings])
-    return total
+    return np.array([reading.value for reading in readings])
 
 
 def calculate(api: API, mpans: dict, ss: SavingSession, tick):
-    try:
-        ss_import = total(api, mpans["IMPORT"], ss.timestamp, ss.hh)
-        next(tick)
-        if meter_point := mpans.get("EXPORT"):
-            ss_export = total(api, meter_point, ss.timestamp, ss.hh)
-        else:
-            ss_export = np.zeros(ss.hh)  # no export
-        next(tick)
-    except ValueError:
-        return None
-
     # Baseline from meter readings from the same time as the Session over the past 10 weekdays (excluding any days with a Saving Session),
     # past 4 weekend days if Saving Session is on a weekend.
     days = 0
@@ -67,13 +55,13 @@ def calculate(api: API, mpans: dict, ss: SavingSession, tick):
     for dt in previous.range("days"):
         if weekday(dt) != weekday(ss.timestamp):
             continue
-        if dt in previous_session_days:
+        if dt.date() in previous_session_days:
             continue
         try:
-            baseline += total(api, mpans["IMPORT"], dt, ss.hh)
+            baseline += get_readings(api, mpans["IMPORT"], dt, ss.hh)
             next(tick)
             if meter_point := mpans.get("EXPORT"):
-                baseline -= total(api, meter_point, dt, ss.hh)
+                baseline -= get_readings(api, meter_point, dt, ss.hh)
                 next(tick)
             days += 1
 
@@ -83,6 +71,23 @@ def calculate(api: API, mpans: dict, ss: SavingSession, tick):
             pass
 
     baseline = baseline / days
+
+    try:
+        ss_import = get_readings(api, mpans["IMPORT"], ss.timestamp, ss.hh)
+        next(tick)
+        if meter_point := mpans.get("EXPORT"):
+            ss_export = get_readings(api, meter_point, ss.timestamp, ss.hh)
+        else:
+            ss_export = np.zeros(ss.hh)  # no export
+        next(tick)
+    except ValueError:
+        # incomplete
+        row = {
+            "session": ss.timestamp,
+            "baseline": baseline.sum(),
+        }
+        return row
+
     # saving is calculated per settlement period (half hour), and only positive savings considered
     kwh = (baseline - ss_import + ss_export).clip(min=0)
     points = kwh.sum() * ss.reward
@@ -176,7 +181,6 @@ def main():
         st.info("Import meter only", icon="ℹ️")
 
     rows = []
-    missing = []
     total_ticks = 22 * len(SAVING_SESSIONS)
 
     def tick():
@@ -184,12 +188,10 @@ def main():
             bar.progress(0.2 + 0.8 * i / total_ticks, text="Getting readings...")
             yield
 
+    ticks = tick()
     for ss in SAVING_SESSIONS:
-        row = calculate(api, mpans, ss, tick())
-        if row is not None:
-            rows.append(row)
-        else:
-            missing.append(ss.timestamp)
+        row = calculate(api, mpans, ss, ticks)
+        rows.append(row)
 
     bar.progress(1.0, text="Done")
     st.subheader("Results")
@@ -208,7 +210,10 @@ def main():
             "earnings": st.column_config.NumberColumn("Earnings", format="£%.2f"),
         },
     )
-    for ts in missing:
+    for row in rows:
+        if "reward" in row:
+            continue
+        ts = row["session"]
         st.info(f"Session on {ts:%Y/%m/%d} is awaiting readings...", icon="⌛")
 
 
