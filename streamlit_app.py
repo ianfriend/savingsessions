@@ -90,8 +90,8 @@ def calculate(api: API, mpans: dict, ss: SavingSession, tick):
 
     # saving is calculated per settlement period (half hour), and only positive savings considered
     kwh = (baseline - ss_import + ss_export).clip(min=0)
-    points = kwh.sum() * ss.reward
-    reward = int(np.ceil(points / 8) * 8)
+    points = np.round(kwh * ss.reward / 8) * 8
+    reward = int(points.sum())
 
     row = {
         "session": ss.timestamp,
