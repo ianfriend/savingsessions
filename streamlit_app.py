@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from datetime import datetime
 import numpy as np
 import pendulum
+import requests
 import streamlit as st
 
 from api import API, AuthenticationError, ElectricityMeterPoint
@@ -19,10 +20,25 @@ def ss(timestamp: str, hh: int, reward: int):
     return SavingSession(cast(datetime, pendulum.parser.parse(timestamp)), hh, reward)
 
 
-SAVING_SESSIONS = [
-    ss("2023-11-16 17:30", 2, 1800),
-    ss("2023-11-29 17:00", 3, 3200),
-]
+def download_sessions():
+    # Thanks @klaus!
+    resp = requests.get("https://api.dudas.energy/savingsessionjson.php")
+    resp.raise_for_status()
+    for entry in resp.json():
+        start = pendulum.from_timestamp(entry["startAt"])
+        end = pendulum.from_timestamp(entry["endAt"])
+        hh = int((end - start).total_minutes() / 30)
+        reward = entry["rewardPerKwhInOctoPoints"]
+        yield SavingSession(start, hh, reward)
+
+
+@st.cache_data(ttl="1h")
+def sessions():
+    return [
+        session
+        for session in download_sessions()
+        if session.timestamp > pendulum.datetime(2023, 11, 1)
+    ]
 
 
 def weekday(day):
@@ -51,7 +67,7 @@ def calculate(api: API, mpans: dict, ss: SavingSession, tick, debug: bool):
     days = 0
     baseline_days = 10 if weekday(ss.timestamp) else 4
     baseline = np.zeros(ss.hh)
-    previous_session_days = {ss.timestamp.date() for ss in SAVING_SESSIONS}
+    previous_session_days = {ss.timestamp.date() for ss in sessions()}
     previous = pendulum.period(
         ss.timestamp.subtract(days=1), ss.timestamp.subtract(days=61)
     )
@@ -195,7 +211,7 @@ def main():
         st.info("Import meter only", icon="ℹ️")
 
     rows = []
-    total_ticks = 22 * len(SAVING_SESSIONS)
+    total_ticks = 22 * len(sessions())
 
     def tick():
         for i in range(total_ticks):
@@ -205,7 +221,7 @@ def main():
             yield
 
     ticks = tick()
-    for ss in SAVING_SESSIONS:
+    for ss in sessions():
         if debug:
             st.write(f"session: {ss}")
         row = calculate(api, mpans, ss, ticks, debug)
