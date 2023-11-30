@@ -37,6 +37,9 @@ def get_readings(api: API, meter_point: ElectricityMeterPoint, ts: datetime, hh:
         start_at=ts,
         first=hh,
     )
+    end_at = ts + pendulum.duration(minutes=30 * hh)
+    # ignore readings outside requested period (after gaps)
+    readings = [reading for reading in readings if reading.endAt <= end_at]
     if len(readings) == 0:
         raise ValueError("missing readings")
     return np.array([reading.value for reading in readings])
