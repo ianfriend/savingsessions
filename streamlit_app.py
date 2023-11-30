@@ -1,4 +1,4 @@
-from typing import Any, cast
+from typing import cast
 from dataclasses import dataclass
 from datetime import datetime
 import numpy as np
@@ -42,7 +42,7 @@ def get_readings(api: API, meter_point: ElectricityMeterPoint, ts: datetime, hh:
     return np.array([reading.value for reading in readings])
 
 
-def calculate(api: API, mpans: dict, ss: SavingSession, tick):
+def calculate(api: API, mpans: dict, ss: SavingSession, tick, debug: bool):
     # Baseline from meter readings from the same time as the Session over the past 10 weekdays (excluding any days with a Saving Session),
     # past 4 weekend days if Saving Session is on a weekend.
     days = 0
@@ -58,17 +58,25 @@ def calculate(api: API, mpans: dict, ss: SavingSession, tick):
         if dt.date() in previous_session_days:
             continue
         try:
-            baseline += get_readings(api, mpans["IMPORT"], dt, ss.hh)
+            import_readings = get_readings(api, mpans["IMPORT"], dt, ss.hh)
+            baseline += import_readings
+            if debug:
+                st.write(f"baseline day #{days}: {dt} import: {import_readings}")
             next(tick)
+
             if meter_point := mpans.get("EXPORT"):
-                baseline -= get_readings(api, meter_point, dt, ss.hh)
+                export_readings = get_readings(api, meter_point, dt, ss.hh)
+                baseline -= export_readings
+                if debug:
+                    st.write(f"baseline day #{days}: {dt} export: {export_readings}")
                 next(tick)
             days += 1
 
             if days == baseline_days:
                 break
         except ValueError:
-            pass
+            if debug:
+                st.write(f"skipped day: {dt} missing readings")
 
     baseline = baseline / days
 
@@ -128,7 +136,10 @@ def main():
     if not api_key:
         st.stop()
 
-    st.experimental_set_query_params(api_key=api_key)
+    if st.experimental_get_query_params().get("api_key") != api_key:
+        params = st.experimental_get_query_params() | {"api_key": api_key}
+        st.experimental_set_query_params(**params)
+
     st.info("Tip: bookmark this url to return with your API key remembered.", icon="🔖")
 
     bar = st.progress(0, text="Authenticating...")
@@ -192,7 +203,9 @@ def main():
 
     ticks = tick()
     for ss in SAVING_SESSIONS:
-        row = calculate(api, mpans, ss, ticks)
+        if debug:
+            st.write(f"session: {ss}")
+        row = calculate(api, mpans, ss, ticks, debug)
         rows.append(row)
 
     bar.progress(1.0, text="Done")
