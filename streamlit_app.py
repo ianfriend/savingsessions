@@ -55,11 +55,12 @@ class Readings:
 
     def __init__(self, meter_point: ElectricityMeterPoint):
         self.meter_point = meter_point
+        self.requested = set()
         self.hh = {}
 
     def get_readings(self, api: API, ts: datetime, hh: int, debug):
         half_hours = list(pendulum.period(ts, ts + phh(hh - 1)).range("minutes", 30))
-        if any(hh not in self.hh for hh in half_hours):
+        if not self.requested.issuperset(half_hours):
             start_at = ts - phh(100 - hh)
             debug(f"Fetching {self.meter_point.mpan} readings from {start_at}")
 
@@ -75,8 +76,14 @@ class Readings:
                 debug(
                     f"Received {len(readings)} readings from {readings[0].startAt} to {readings[-1].endAt}"
                 )
+                self.requested.update(
+                    pendulum.period(start_at, readings[-1].startAt).range("minutes", 30)
+                )
             else:
                 debug("Received no readings")
+                self.requested.update(
+                    pendulum.period(start_at, start_at + phh(99)).range("minutes", 30)
+                )
 
             for reading in readings:
                 self.hh[reading.startAt] = reading.value
