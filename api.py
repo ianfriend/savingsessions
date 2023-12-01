@@ -2,7 +2,7 @@ import logging
 import requests
 from datetime import datetime, timezone
 from dataclasses import dataclass
-from rich import print
+import pendulum
 
 
 def parse_timestamp(s):
@@ -203,3 +203,22 @@ class API:
         edges = consumption["edges"]
         readings = [Reading(**edge["node"]) for edge in edges]
         return readings
+
+
+@dataclass
+class SavingSession:
+    timestamp: datetime
+    hh: int
+    reward: int
+
+
+def download_sessions():
+    # Thanks @klaus!
+    resp = requests.get("https://api.dudas.energy/savingsessionjson.php")
+    resp.raise_for_status()
+    for entry in resp.json():
+        start = pendulum.from_timestamp(entry["startAt"])
+        end = pendulum.from_timestamp(entry["endAt"])
+        hh = int((end - start).total_minutes() / 30)
+        reward = entry["rewardPerKwhInOctoPoints"]
+        yield SavingSession(start, hh, reward)

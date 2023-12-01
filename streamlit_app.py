@@ -1,35 +1,15 @@
-from typing import cast
-from dataclasses import dataclass
 from datetime import datetime
 import numpy as np
 import pendulum
-import requests
 import streamlit as st
 
-from api import API, AuthenticationError, ElectricityMeterPoint
-
-
-@dataclass
-class SavingSession:
-    timestamp: datetime
-    hh: int
-    reward: int
-
-
-def ss(timestamp: str, hh: int, reward: int):
-    return SavingSession(cast(datetime, pendulum.parser.parse(timestamp)), hh, reward)
-
-
-def download_sessions():
-    # Thanks @klaus!
-    resp = requests.get("https://api.dudas.energy/savingsessionjson.php")
-    resp.raise_for_status()
-    for entry in resp.json():
-        start = pendulum.from_timestamp(entry["startAt"])
-        end = pendulum.from_timestamp(entry["endAt"])
-        hh = int((end - start).total_minutes() / 30)
-        reward = entry["rewardPerKwhInOctoPoints"]
-        yield SavingSession(start, hh, reward)
+from api import (
+    API,
+    AuthenticationError,
+    ElectricityMeterPoint,
+    SavingSession,
+    download_sessions,
+)
 
 
 @st.cache_data(ttl="1h")
