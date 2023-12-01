@@ -41,6 +41,12 @@ def sessions():
     ]
 
 
+@st.cache_data(ttl=None)  # never expire
+def get_product(code: str):
+    api = API()  # unauthenticated
+    return api.energy_product(code)
+
+
 def weekday(day):
     """True if day is a weekday"""
     return pendulum.MONDAY <= day.day_of_week <= pendulum.FRIDAY
@@ -218,9 +224,9 @@ def main():
 
     bar = st.progress(0, text="Authenticating...")
 
-    api = API(api_key)
+    api = API()
     try:
-        api.authenticate()
+        api.authenticate(api_key)
     except AuthenticationError:
         error("Authentication error, check your API key")
 
@@ -241,8 +247,7 @@ def main():
     bar.progress(0.15, text="Getting tariffs...")
     mpans: dict[str, ElectricityMeterPoint] = {}
     for agreement in agreements:
-        # TODO: cache products
-        product = api.energy_product(agreement.tariff.productCode)
+        product = get_product(agreement.tariff.productCode)
         if product.direction in mpans:
             st.warning(
                 "Multiple %s meterpoints, using first" % product.direction, icon="⚠️"

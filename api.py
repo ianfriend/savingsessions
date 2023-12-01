@@ -87,8 +87,7 @@ class API:
     base_url = "https://api.octopus.energy/v1/graphql/"
     logger = logging.getLogger("graphql")
 
-    def __init__(self, api_key: str):
-        self.api_key = api_key
+    def __init__(self):
         self.token = None
 
     def _request(self, query, **variables):
@@ -115,13 +114,13 @@ class API:
             raise APIError(errors)
         return resp.json()["data"]
 
-    def authenticate(self):
+    def authenticate(self, api_key):
         query = """mutation krakenTokenAuthentication($key: String!) {
   obtainKrakenToken(input: {APIKey: $key}) {
     token
   }
 }"""
-        data = self._request(query, key=self.api_key)
+        data = self._request(query, key=api_key)
         self.token = data["obtainKrakenToken"]["token"]
 
     def accounts(self):
