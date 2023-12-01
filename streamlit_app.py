@@ -46,22 +46,56 @@ def weekday(day):
     return pendulum.MONDAY <= day.day_of_week <= pendulum.FRIDAY
 
 
-def get_readings(api: API, meter_point: ElectricityMeterPoint, ts: datetime, hh: int):
-    readings = api.half_hourly_readings(
-        mpan=meter_point.mpan,
-        meter=meter_point.meters[0].id,
-        start_at=ts,
-        first=hh,
-    )
-    end_at = ts + pendulum.duration(minutes=30 * hh)
-    # ignore readings outside requested period (after gaps)
-    readings = [reading for reading in readings if reading.endAt <= end_at]
-    if len(readings) == 0:
-        raise ValueError("missing readings")
-    return np.array([reading.value for reading in readings])
+def phh(hh: int):
+    return pendulum.duration(minutes=hh * 30)
 
 
-def calculate(api: API, mpans: dict, ss: SavingSession, tick, debug: bool):
+class Readings:
+    """Cached table of readings"""
+
+    def __init__(self, meter_point: ElectricityMeterPoint):
+        self.meter_point = meter_point
+        self.hh = {}
+
+    def get_readings(self, api: API, ts: datetime, hh: int, debug):
+        half_hours = list(pendulum.period(ts, ts + phh(hh - 1)).range("minutes", 30))
+        if any(hh not in self.hh for hh in half_hours):
+            start_at = ts - phh(100 - hh)
+            debug(f"Fetching {self.meter_point.mpan} readings from {start_at}")
+
+            # Request readings and cache the lot
+            readings = api.half_hourly_readings(
+                mpan=self.meter_point.mpan,
+                meter=self.meter_point.meters[0].id,
+                start_at=start_at,
+                first=100,
+                before=None,
+            )
+            if readings:
+                debug(
+                    f"Received {len(readings)} readings from {readings[0].startAt} to {readings[-1].endAt}"
+                )
+            else:
+                debug("Received no readings")
+
+            for reading in readings:
+                self.hh[reading.startAt] = reading.value
+
+        try:
+            values = [self.hh[t] for t in half_hours]
+            return np.array(values)
+        except KeyError:
+            raise ValueError("missing readings")
+
+
+def calculate(
+    api: API,
+    import_readings: Readings,
+    export_readings: Readings | None,
+    ss: SavingSession,
+    tick,
+    debug,
+):
     # Baseline from meter readings from the same time as the Session over the past 10 weekdays (excluding any days with a Saving Session),
     # past 4 weekend days if Saving Session is on a weekend.
     days = 0
@@ -71,43 +105,48 @@ def calculate(api: API, mpans: dict, ss: SavingSession, tick, debug: bool):
     previous = pendulum.period(
         ss.timestamp.subtract(days=1), ss.timestamp.subtract(days=61)
     )
+
+    try:
+        ss_import = import_readings.get_readings(api, ss.timestamp, ss.hh, debug)
+        next(tick)
+        if export_readings:
+            ss_export = export_readings.get_readings(api, ss.timestamp, ss.hh, debug)
+        else:
+            ss_export = np.zeros(ss.hh)  # no export
+        next(tick)
+        debug(f"session import: {ss_import}")
+        debug(f"session export: {ss_export}")
+    except ValueError:
+        # incomplete, but useful to still calculate baseline
+        debug("session incomplete")
+        ss_import = ss_export = None
+
     for dt in previous.range("days"):
         if weekday(dt) != weekday(ss.timestamp):
             continue
         if dt.date() in previous_session_days:
             continue
         try:
-            import_readings = get_readings(api, mpans["IMPORT"], dt, ss.hh)
-            baseline += import_readings
-            if debug:
-                st.write(f"baseline day #{days}: {dt} import: {import_readings}")
+            import_values = import_readings.get_readings(api, dt, ss.hh, debug)
+            baseline += import_values
+            debug(f"baseline day #{days}: {dt} import: {import_values}")
             next(tick)
 
-            if meter_point := mpans.get("EXPORT"):
-                export_readings = get_readings(api, meter_point, dt, ss.hh)
-                baseline -= export_readings
-                if debug:
-                    st.write(f"baseline day #{days}: {dt} export: {export_readings}")
+            if export_readings:
+                export_values = export_readings.get_readings(api, dt, ss.hh, debug)
+                baseline -= export_values
+                debug(f"baseline day #{days}: {dt} export: {export_values}")
                 next(tick)
             days += 1
 
             if days == baseline_days:
                 break
         except ValueError:
-            if debug:
-                st.write(f"skipped day: {dt} missing readings")
+            debug(f"skipped day: {dt} missing readings")
 
     baseline = baseline / days
 
-    try:
-        ss_import = get_readings(api, mpans["IMPORT"], ss.timestamp, ss.hh)
-        next(tick)
-        if meter_point := mpans.get("EXPORT"):
-            ss_export = get_readings(api, meter_point, ss.timestamp, ss.hh)
-        else:
-            ss_export = np.zeros(ss.hh)  # no export
-        next(tick)
-    except ValueError:
+    if ss_import is None or ss_export is None:
         # incomplete
         row = {
             "session": ss.timestamp,
@@ -137,9 +176,18 @@ def error(msg: str):
     st.stop()
 
 
-def main():
-    debug = "debug" in st.experimental_get_query_params()
+def debug_message(msg):
+    st.write(msg)
 
+
+def debug_noop(msg):
+    pass
+
+
+def main():
+    debug = (
+        debug_message if "debug" in st.experimental_get_query_params() else debug_noop
+    )
     st.set_page_config(page_icon="🐙", page_title="Octopus Saving Sessions calculator")
     st.header("🐙 Octopus Saving Sessions calculator")
 
@@ -175,19 +223,18 @@ def main():
         error("No accounts found")
     account = accounts[0]
 
-    if debug:
-        st.write(account)
+    debug(account)
     bar.progress(0.1, text="Getting meters...")
     agreements = api.agreements(account.number)
-    if debug:
-        for agreement in agreements:
-            st.write(agreement)
+    for agreement in agreements:
+        debug(agreement)
     if not agreements:
         error("No agreements on account")
 
     bar.progress(0.15, text="Getting tariffs...")
     mpans: dict[str, ElectricityMeterPoint] = {}
     for agreement in agreements:
+        # TODO: cache products
         product = api.energy_product(agreement.tariff.productCode)
         if product.direction in mpans:
             st.warning(
@@ -201,14 +248,19 @@ def main():
                     % agreement.meterPoint.mpan,
                     icon="⚠️",
                 )
-        if debug:
-            st.write(product)
+        debug(product)
 
-    if "IMPORT" not in mpans:
+    if meter_point := mpans.get("IMPORT"):
+        import_readings = Readings(meter_point)
+    else:
         error("Import meterpoint not found")
+        raise NotImplementedError()  # unreachable
 
-    if "EXPORT" not in mpans:
+    if meter_point := mpans.get("EXPORT"):
+        export_readings = Readings(meter_point)
+    else:
         st.info("Import meter only", icon="ℹ️")
+        export_readings = None
 
     rows = []
     total_ticks = 22 * len(sessions())
@@ -222,9 +274,8 @@ def main():
 
     ticks = tick()
     for ss in sessions():
-        if debug:
-            st.write(f"session: {ss}")
-        row = calculate(api, mpans, ss, ticks, debug)
+        debug(f"session: {ss}")
+        row = calculate(api, import_readings, export_readings, ss, ticks, debug)
         rows.append(row)
 
     bar.progress(1.0, text="Done")
@@ -251,4 +302,5 @@ def main():
         st.info(f"Session on {ts:%Y/%m/%d} is awaiting readings...", icon="⌛")
 
 
-main()
+if __name__ == "__main__":
+    main()

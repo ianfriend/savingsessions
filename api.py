@@ -70,6 +70,11 @@ class EnergyProduct:
     direction: str
 
 
+@dataclass
+class PageInfo:
+    startCursor: str
+
+
 class APIError(Exception):
     pass
 
@@ -169,12 +174,12 @@ class API:
         return EnergyProduct(**data["energyProduct"])
 
     def half_hourly_readings(
-        self, mpan: str, meter: str, start_at: datetime, first: int
+        self, mpan: str, meter: str, start_at: datetime, first: int, before: str | None
     ):
-        query = """query halfHourlyReadings($mpan: ID, $meter: Int, $startAt: DateTime!, $first: Int) {
+        query = """query halfHourlyReadings($mpan: ID, $meter: Int, $startAt: DateTime!, $first: Int, $before: String) {
   meterPoints(mpan: $mpan) {
     meters(id: $meter) {
-      consumption(startAt: $startAt, grouping: HALF_HOUR, timezone: "UTC", first: $first) {
+      consumption(startAt: $startAt, grouping: HALF_HOUR, timezone: "UTC", first: $first, before: $before) {
         edges {
           node {
             value
@@ -193,7 +198,9 @@ class API:
             meter=int(meter),
             startAt=start_at.strftime("%Y-%m-%dT%H:%M:%S%z"),
             first=first,
+            before=before,
         )
-        edges = data["meterPoints"]["meters"][0]["consumption"]["edges"]
+        consumption = data["meterPoints"]["meters"][0]["consumption"]
+        edges = consumption["edges"]
         readings = [Reading(**edge["node"]) for edge in edges]
         return readings
