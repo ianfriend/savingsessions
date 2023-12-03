@@ -75,6 +75,22 @@ class PageInfo:
     startCursor: str
 
 
+@dataclass
+class SavingSession:
+    code: str
+    startAt: datetime
+    endAt: datetime
+    rewardPerKwhInOctoPoints: int
+
+    def __post_init__(self):
+        self.startAt = pendulum.parse(self.startAt)
+        self.endAt = pendulum.parse(self.endAt)
+
+    @property
+    def hh(self) -> int:
+        return int((self.endAt - self.startAt).total_seconds() / 1800)
+
+
 class APIError(Exception):
     pass
 
@@ -204,21 +220,20 @@ class API:
         readings = [Reading(**edge["node"]) for edge in edges]
         return readings
 
-
-@dataclass
-class SavingSession:
-    timestamp: datetime
-    hh: int
-    reward: int
-
-
-def download_sessions():
-    # Thanks @klaus!
-    resp = requests.get("https://api.dudas.energy/savingsessionjson.php")
-    resp.raise_for_status()
-    for entry in resp.json():
-        start = pendulum.from_timestamp(entry["startAt"])
-        end = pendulum.from_timestamp(entry["endAt"])
-        hh = int((end - start).total_minutes() / 30)
-        reward = entry["rewardPerKwhInOctoPoints"]
-        yield SavingSession(start, hh, reward)
+    def saving_sessions(self):
+        query = """query savingSessions {
+  savingSessions {
+    events {
+      code
+      startAt
+      endAt
+      rewardPerKwhInOctoPoints
+    }
+  }
+}
+        """
+        data = self._request(query)
+        sessions = [
+            SavingSession(**event) for event in data["savingSessions"]["events"]
+        ]
+        return sessions

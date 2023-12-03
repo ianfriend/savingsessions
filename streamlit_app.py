@@ -8,16 +8,16 @@ from api import (
     AuthenticationError,
     ElectricityMeterPoint,
     SavingSession,
-    download_sessions,
 )
 
 
 @st.cache_data(ttl="1h")
-def sessions():
+def cache_sessions(_api: API):
     return [
         session
-        for session in download_sessions()
-        if session.timestamp > pendulum.datetime(2023, 11, 1)
+        for session in _api.saving_sessions()
+        if session.startAt > pendulum.datetime(2023, 11, 1)
+        and session.rewardPerKwhInOctoPoints > 0
     ]
 
 
@@ -83,6 +83,7 @@ class Readings:
 
 def calculate(
     api: API,
+    sessions: list[SavingSession],
     import_readings: Readings,
     export_readings: Readings | None,
     ss: SavingSession,
@@ -92,18 +93,18 @@ def calculate(
     # Baseline from meter readings from the same time as the Session over the past 10 weekdays (excluding any days with a Saving Session),
     # past 4 weekend days if Saving Session is on a weekend.
     days = 0
-    baseline_days = 10 if weekday(ss.timestamp) else 4
+    baseline_days = 10 if weekday(ss.startAt) else 4
     baseline = np.zeros(ss.hh)
-    previous_session_days = {ss.timestamp.date() for ss in sessions()}
+    previous_session_days = {ss.startAt.date() for ss in sessions}
     previous = pendulum.period(
-        ss.timestamp.subtract(days=1), ss.timestamp.subtract(days=61)
+        ss.startAt.subtract(days=1), ss.startAt.subtract(days=61)
     )
 
     try:
-        ss_import = import_readings.get_readings(api, ss.timestamp, ss.hh, debug)
+        ss_import = import_readings.get_readings(api, ss.startAt, ss.hh, debug)
         next(tick)
         if export_readings:
-            ss_export = export_readings.get_readings(api, ss.timestamp, ss.hh, debug)
+            ss_export = export_readings.get_readings(api, ss.startAt, ss.hh, debug)
         else:
             ss_export = np.zeros(ss.hh)  # no export
         next(tick)
@@ -115,7 +116,7 @@ def calculate(
         ss_import = ss_export = None
 
     for dt in previous.range("days"):
-        if weekday(dt) != weekday(ss.timestamp):
+        if weekday(dt) != weekday(ss.startAt):
             continue
         if dt.date() in previous_session_days:
             continue
@@ -142,18 +143,18 @@ def calculate(
     if ss_import is None or ss_export is None:
         # incomplete
         row = {
-            "session": ss.timestamp,
+            "session": ss.startAt,
             "baseline": baseline.sum(),
         }
         return row
 
     # saving is calculated per settlement period (half hour), and only positive savings considered
     kwh = (baseline - ss_import + ss_export).clip(min=0)
-    points = np.round(kwh * ss.reward / 8) * 8
+    points = np.round(kwh * ss.rewardPerKwhInOctoPoints / 8) * 8
     reward = int(points.sum())
 
     row = {
-        "session": ss.timestamp,
+        "session": ss.startAt,
         "import": ss_import.sum(),
         "export": ss_export.sum(),
         "baseline": baseline.sum(),
@@ -255,7 +256,8 @@ def main():
         export_readings = None
 
     rows = []
-    total_ticks = 22 * len(sessions())
+    sessions = cache_sessions(api)
+    total_ticks = 22 * len(sessions)
 
     def tick():
         for i in range(total_ticks):
@@ -265,9 +267,11 @@ def main():
             yield
 
     ticks = tick()
-    for ss in sessions():
+    for ss in sessions:
         debug(f"session: {ss}")
-        row = calculate(api, import_readings, export_readings, ss, ticks, debug)
+        row = calculate(
+            api, sessions, import_readings, export_readings, ss, ticks, debug
+        )
         rows.append(row)
 
     bar.progress(1.0, text="Done")
