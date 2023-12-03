@@ -260,17 +260,24 @@ def main():
 
     rows = []
     sessions = cache_sessions(api)
-    total_ticks = 22 * len(sessions)
 
-    def tick():
+    total_ticks = 22
+
+    def tick(message, start, end):
         for i in range(total_ticks):
-            bar.progress(0.2 + 0.8 * i / total_ticks, text="Getting readings...")
+            bar.progress(start + (end - start) * i / total_ticks, text=message)
             yield
         while True:
             yield
 
-    ticks = tick()
-    for ss in sessions:
+    ticks_per_session = 0.8 / len(sessions)
+    for i, ss in enumerate(sessions):
+        start = 0.2 + i * ticks_per_session
+        ticks = tick(
+            f"Getting readings for session #{i+1} ({ss.startAt:%b %d})...",
+            start,
+            start + ticks_per_session,
+        )
         debug(f"session: {ss}")
         row = calculate(
             api, sessions, import_readings, export_readings, ss, ticks, debug
