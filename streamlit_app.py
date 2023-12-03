@@ -194,6 +194,9 @@ def main():
     ):
         st.session_state["api_key"] = api_key[0]
     api_key = st.text_input("API key:", key="api_key", placeholder="sk_live_...")
+    st.info(
+        "This app never stores your API key. If you have any concerns you can check out the [source code](https://github.com/barnybug/savingsessions) for the app, and please by all means 'Regenerate' your key at the link above after using this."
+    )
     if not api_key:
         st.stop()
 
