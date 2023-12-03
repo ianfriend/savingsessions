@@ -270,6 +270,8 @@ def main():
         while True:
             yield
 
+    placeholder = st.empty()
+
     ticks_per_session = 0.8 / len(sessions)
     for i, ss in enumerate(sessions):
         start = 0.2 + i * ticks_per_session
@@ -284,23 +286,34 @@ def main():
         )
         rows.append(row)
 
-    bar.progress(1.0, text="Done")
-    st.subheader("Results")
+        # Update in place
+        with placeholder.container():
+            st.subheader("Results")
+            st.dataframe(
+                rows,
+                column_config={
+                    "session": st.column_config.DatetimeColumn(
+                        "Session", format="YYYY/MM/DD HH:mm"
+                    ),
+                    "import": st.column_config.NumberColumn(
+                        "Imported", format="%.2f kWh"
+                    ),
+                    "export": st.column_config.NumberColumn(
+                        "Exported", format="%.2f kWh"
+                    ),
+                    "baseline": st.column_config.NumberColumn(
+                        "Baseline", format="%.2f kWh"
+                    ),
+                    "saved": st.column_config.NumberColumn("Saved", format="%.2f kWh"),
+                    "reward": st.column_config.NumberColumn("Reward"),
+                    "earnings": st.column_config.NumberColumn(
+                        "Earnings", format="£%.2f"
+                    ),
+                },
+            )
 
-    st.dataframe(
-        rows,
-        column_config={
-            "session": st.column_config.DatetimeColumn(
-                "Session", format="YYYY/MM/DD HH:mm"
-            ),
-            "import": st.column_config.NumberColumn("Imported", format="%.2f kWh"),
-            "export": st.column_config.NumberColumn("Exported", format="%.2f kWh"),
-            "baseline": st.column_config.NumberColumn("Baseline", format="%.2f kWh"),
-            "saved": st.column_config.NumberColumn("Saved", format="%.2f kWh"),
-            "reward": st.column_config.NumberColumn("Reward"),
-            "earnings": st.column_config.NumberColumn("Earnings", format="£%.2f"),
-        },
-    )
+    bar.progress(1.0, text="Done")
+
     for row in rows:
         if "reward" in row:
             continue
