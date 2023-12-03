@@ -17,7 +17,7 @@ def cache_sessions(_api: API):
         session
         for session in _api.saving_sessions()
         if session.startAt > pendulum.datetime(2023, 11, 1)
-        and session.rewardPerKwhInOctoPoints > 0
+        and session.code.startswith("EVENT_")  # ignore test events
     ]
 
 
