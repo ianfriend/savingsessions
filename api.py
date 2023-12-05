@@ -97,7 +97,7 @@ class SavingSessionResponse:
     hasJoinedCampaign: bool
     sessions: list[SavingSession]
     joinedEvents: list[str]
-    signedUpMeterPoint: str
+    signedUpMeterPoint: str | None
 
 
 class APIError(Exception):
@@ -257,7 +257,7 @@ class API:
         ]
         a = data["savingSessions"]["account"]
         joinedEvents = [event["eventId"] for event in a["joinedEvents"]]
-        mpan = a["signedUpMeterPoint"]["mpan"]
+        mpan = a["signedUpMeterPoint"]["mpan"] if "signedUpMeterPoint" in a else None
         return SavingSessionResponse(
             a["hasJoinedCampaign"], sessions, joinedEvents, mpan
         )

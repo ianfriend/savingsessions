@@ -1,4 +1,5 @@
 from datetime import datetime
+from multiprocessing import Value
 import numpy as np
 import pendulum
 import streamlit as st
@@ -245,15 +246,15 @@ def main():
     debug(res)
     if not res.hasJoinedCampaign:
         error("Sorry, it looks like you've not joined saving sessions.")
+    if not res.signedUpMeterPoint:
+        error("Sorry, it looks like you haven't a meter point for saving sessions.")
     sessions = [session for session in res.sessions if session.id in res.joinedEvents]
     if not sessions:
         error("Not joined any saving sessions yet.")
-    import_mpan = res.signedUpMeterPoint
+    import_mpan = res.signedUpMeterPoint or ""
 
     bar.progress(0.1, text="Getting meters...")
     agreements = api.agreements(account.number)
-    for agreement in agreements:
-        debug(agreement)
     if not agreements:
         error("No agreements on account")
 
@@ -261,6 +262,7 @@ def main():
     export_mpan = None
     mpans: dict[str, ElectricityMeterPoint] = {}
     for agreement in agreements:
+        debug(agreement)
         mpans[agreement.meterPoint.mpan] = agreement.meterPoint
         if agreement.meterPoint.mpan == import_mpan:
             continue
