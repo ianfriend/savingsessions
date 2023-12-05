@@ -107,7 +107,7 @@ class API:
         self.token = None
 
     def _request(self, query, **variables):
-        headers = {}
+        headers = {"User-Agent": "https://savingsessions.streamlit.app/"}
         if self.token:
             headers["Authorization"] = self.token
         self.logger.debug("request: %s variables: %r", query, variables)
