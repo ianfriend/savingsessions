@@ -11,16 +11,6 @@ from api import (
 )
 
 
-@st.cache_data(ttl="1h")
-def cache_sessions(_api: API):
-    return [
-        session
-        for session in _api.saving_sessions()
-        if session.startAt > pendulum.datetime(2023, 11, 1)
-        and session.code.startswith("EVENT_")  # ignore test events
-    ]
-
-
 @st.cache_data(ttl=None)  # never expire
 def get_product(code: str):
     api = API()  # unauthenticated
@@ -241,8 +231,18 @@ def main():
     if not accounts:
         error("No accounts found")
     account = accounts[0]
-
     debug(account)
+
+    bar.progress(0.07, text="Getting sessions...")
+    res = api.saving_sessions(account.number)
+    debug(res)
+    if not res.hasJoinedCampaign:
+        error("Sorry, it looks like you've not joined saving sessions.")
+    sessions = [session for session in res.sessions if session.id in res.joinedEvents]
+    if not sessions:
+        error("Not joined any saving sessions yet.")
+    import_mpan = res.signedUpMeterPoint
+
     bar.progress(0.1, text="Getting meters...")
     agreements = api.agreements(account.number)
     for agreement in agreements:
@@ -251,39 +251,27 @@ def main():
         error("No agreements on account")
 
     bar.progress(0.15, text="Getting tariffs...")
+    export_mpan = None
     mpans: dict[str, ElectricityMeterPoint] = {}
     for agreement in agreements:
+        mpans[agreement.meterPoint.mpan] = agreement.meterPoint
+        if agreement.meterPoint.mpan == import_mpan:
+            continue
+        # Find export meter
         product = get_product(agreement.tariff.productCode)
-        if product.direction in mpans:
-            st.warning(
-                "Multiple %s meterpoints, using first" % product.direction, icon="⚠️"
-            )
-        else:
-            mpans[product.direction] = agreement.meterPoint
-            if len(agreement.meterPoint.meters) > 1:
-                st.warning(
-                    "Meterpoint %s has multiple meters, using first"
-                    % agreement.meterPoint.mpan,
-                    icon="⚠️",
-                )
-        debug(product)
+        if product.direction == "EXPORT":
+            export_mpan = agreement.meterPoint.mpan
 
-    if meter_point := mpans.get("IMPORT"):
-        import_readings = Readings(meter_point)
-    else:
-        error("Import meterpoint not found")
-        raise NotImplementedError()  # unreachable
-
-    if meter_point := mpans.get("EXPORT"):
-        export_readings = Readings(meter_point)
+    import_readings = Readings(mpans[import_mpan])
+    if export_mpan:
+        export_readings = Readings(mpans[export_mpan])
     else:
         st.info("Import meter only", icon="ℹ️")
         export_readings = None
+    debug(mpans)
 
     calcs = []
     rows = []
-    sessions = cache_sessions(api)
-
     total_ticks = 22
 
     def tick(message, start, end):

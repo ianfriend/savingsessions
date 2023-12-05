@@ -77,6 +77,7 @@ class PageInfo:
 
 @dataclass
 class SavingSession:
+    id: int
     code: str
     startAt: datetime
     endAt: datetime
@@ -89,6 +90,14 @@ class SavingSession:
     @property
     def hh(self) -> int:
         return int((self.endAt - self.startAt).total_seconds() / 1800)
+
+
+@dataclass
+class SavingSessionResponse:
+    hasJoinedCampaign: bool
+    sessions: list[SavingSession]
+    joinedEvents: list[str]
+    signedUpMeterPoint: str
 
 
 class APIError(Exception):
@@ -220,10 +229,20 @@ class API:
         readings = [Reading(**edge["node"]) for edge in edges]
         return readings
 
-    def saving_sessions(self):
-        query = """query savingSessions {
+    def saving_sessions(self, account: str):
+        query = """query savingSessions($account: String!) {
   savingSessions {
+    account(accountNumber: $account) {
+      hasJoinedCampaign
+      joinedEvents {
+        eventId
+      }
+      signedUpMeterPoint {
+        mpan
+      }
+    }
     events {
+      id
       code
       startAt
       endAt
@@ -232,8 +251,13 @@ class API:
   }
 }
         """
-        data = self._request(query)
+        data = self._request(query, account=account)
         sessions = [
             SavingSession(**event) for event in data["savingSessions"]["events"]
         ]
-        return sessions
+        a = data["savingSessions"]["account"]
+        joinedEvents = [event["eventId"] for event in a["joinedEvents"]]
+        mpan = a["signedUpMeterPoint"]["mpan"]
+        return SavingSessionResponse(
+            a["hasJoinedCampaign"], sessions, joinedEvents, mpan
+        )
