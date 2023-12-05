@@ -156,9 +156,6 @@ class Calculation:
 
         self.baseline_import = np.asarray(baseline_import)
         self.baseline_export = np.asarray(baseline_export)
-        if not self.complete:
-            return
-
         # saving is calculated per settlement period (half hour), and only positive savings considered
         self.baseline = (self.baseline_import - self.baseline_export).mean(axis=0)
         self.kwh = (self.baseline - self.session_import + self.session_export).clip(
