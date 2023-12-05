@@ -88,7 +88,6 @@ class Calculation:
         self.session_export = np.zeros(ss.hh)
         # Baseline from meter readings from the same time as the Session over the past 10 weekdays (excluding any days with a Saving Session),
         # past 4 weekend days if Saving Session is on a weekend.
-        days = 0
         days_required = 10 if weekday(ss.startAt) else 4
         previous_session_days = {ss.startAt.date() for ss in sessions}
         previous = pendulum.period(
@@ -99,20 +98,25 @@ class Calculation:
             self.session_import = import_readings.get_readings(
                 api, ss.startAt, ss.hh, debug
             )
-            next(tick)
-            if export_readings:
-                self.session_export = export_readings.get_readings(
-                    api, ss.startAt, ss.hh, debug
-                )
-            next(tick)
             debug(f"session import: {self.session_import}")
-            debug(f"session export: {self.session_export}")
             self.complete = True
         except ValueError:
             # incomplete, but useful to still calculate baseline
             debug("session incomplete")
             self.complete = False
+        next(tick)
 
+        if export_readings:
+            try:
+                self.session_export = export_readings.get_readings(
+                    api, ss.startAt, ss.hh, debug
+                )
+                debug(f"session export: {self.session_export}")
+            except ValueError:
+                debug("missing export readings")
+        next(tick)
+
+        days = 0
         baseline_import = []
         baseline_export = []
         for dt in previous.range("days"):
@@ -120,27 +124,35 @@ class Calculation:
                 continue
             if dt.date() in previous_session_days:
                 continue
+
             try:
                 import_values = import_readings.get_readings(api, dt, ss.hh, debug)
+                baseline_import.append(import_values)
                 debug(f"baseline day #{days}: {dt} import: {import_values}")
-                next(tick)
+            except ValueError:
+                debug(f"skipped day: {dt} missing readings")
+                continue
+            next(tick)
 
-                if export_readings:
+            if export_readings:
+                try:
                     export_values = export_readings.get_readings(api, dt, ss.hh, debug)
                     baseline_export.append(export_values)
                     debug(f"baseline day #{days}: {dt} export: {export_values}")
-                else:
+                except ValueError:
                     baseline_export.append(np.zeros(ss.hh))
-                next(tick)
-                days += 1
+                    debug(f"baseline day: {dt} missing export readings")
+            else:
+                baseline_export.append(np.zeros(ss.hh))
+            next(tick)
 
-                self.baseline_days.append(dt)
-                baseline_import.append(import_values)
+            self.baseline_days.append(dt)
+            days += 1
+            if days == days_required:
+                break
 
-                if days == days_required:
-                    break
-            except ValueError:
-                debug(f"skipped day: {dt} missing readings")
+        if days < days_required:
+            self.complete = False
 
         self.baseline_import = np.asarray(baseline_import)
         self.baseline_export = np.asarray(baseline_export)
@@ -148,9 +160,7 @@ class Calculation:
             return
 
         # saving is calculated per settlement period (half hour), and only positive savings considered
-        self.baseline = self.baseline_import.mean(axis=0) - self.baseline_export.mean(
-            axis=0
-        )
+        self.baseline = (self.baseline_import - self.baseline_export).mean(axis=0)
         self.kwh = (self.baseline - self.session_import + self.session_export).clip(
             min=0
         )
