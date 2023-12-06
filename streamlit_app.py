@@ -345,6 +345,32 @@ def main():
                 },
             )
 
+            # Markdown table
+            st.write("**Copy as markdown**")
+            markdown = "|Session|Imported|Exported|Baseline|Saved|Reward|Earnings|\n|---|---|---|---|---|---|---|\n"
+            for row in rows:
+                markdown += f"|{row['session']:%d %b %Y}"
+                for key in (
+                    "import",
+                    "export",
+                    "baseline",
+                    "saved",
+                    "reward",
+                    "earnings",
+                ):
+                    markdown += "|"
+                    if key in row:
+                        fmt = (
+                            "£%.2f"
+                            if key == "earnings"
+                            else "%d"
+                            if key == "reward"
+                            else "%.3f"
+                        )
+                        markdown += fmt % row[key]
+                markdown += "|\n"
+            st.code(markdown, language="markdown")
+
         # Session breakdown
         with st.expander(f"Session {ss.startAt:%b %d %Y} breakdown"):
             timestamps = [
