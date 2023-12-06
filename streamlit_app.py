@@ -73,44 +73,48 @@ class Readings:
 
 
 class Calculation:
+    def __init__(self, ss: SavingSession) -> None:
+        self.ss = ss
+        self.session_import = None
+        self.session_export = None
+        self.baseline_days = []
+        self.baseline_import = None
+        self.baseline_export = None
+        self.baseline = None
+        self.kwh = None
+        self.points = None
+
     def calculate(
         self,
         api: API,
         sessions: list[SavingSession],
         import_readings: Readings,
         export_readings: Readings | None,
-        ss: SavingSession,
         tick,
         debug,
     ):
-        self.ss = ss
-        self.baseline_days = []
-        self.session_import = np.zeros(ss.hh)
-        self.session_export = np.zeros(ss.hh)
         # Baseline from meter readings from the same time as the Session over the past 10 weekdays (excluding any days with a Saving Session),
         # past 4 weekend days if Saving Session is on a weekend.
-        days_required = 10 if weekday(ss.startAt) else 4
+        days_required = 10 if weekday(self.ss.startAt) else 4
         previous_session_days = {ss.startAt.date() for ss in sessions}
         previous = pendulum.period(
-            ss.startAt.subtract(days=1), ss.startAt.subtract(days=61)
+            self.ss.startAt.subtract(days=1), self.ss.startAt.subtract(days=61)
         )
 
         try:
             self.session_import = import_readings.get_readings(
-                api, ss.startAt, ss.hh, debug
+                api, self.ss.startAt, self.ss.hh, debug
             )
             debug(f"session import: {self.session_import}")
-            self.complete = True
         except ValueError:
             # incomplete, but useful to still calculate baseline
             debug("session incomplete")
-            self.complete = False
         next(tick)
 
         if export_readings:
             try:
                 self.session_export = export_readings.get_readings(
-                    api, ss.startAt, ss.hh, debug
+                    api, self.ss.startAt, self.ss.hh, debug
                 )
                 debug(f"session export: {self.session_export}")
             except ValueError:
@@ -121,13 +125,13 @@ class Calculation:
         baseline_import = []
         baseline_export = []
         for dt in previous.range("days"):
-            if weekday(dt) != weekday(ss.startAt):
+            if weekday(dt) != weekday(self.ss.startAt):
                 continue
             if dt.date() in previous_session_days:
                 continue
 
             try:
-                import_values = import_readings.get_readings(api, dt, ss.hh, debug)
+                import_values = import_readings.get_readings(api, dt, self.ss.hh, debug)
                 baseline_import.append(import_values)
                 debug(f"baseline day #{days}: {dt} import: {import_values}")
             except ValueError:
@@ -137,14 +141,13 @@ class Calculation:
 
             if export_readings:
                 try:
-                    export_values = export_readings.get_readings(api, dt, ss.hh, debug)
+                    export_values = export_readings.get_readings(
+                        api, dt, self.ss.hh, debug
+                    )
                     baseline_export.append(export_values)
                     debug(f"baseline day #{days}: {dt} export: {export_values}")
                 except ValueError:
-                    baseline_export.append(np.zeros(ss.hh))
                     debug(f"baseline day: {dt} missing export readings")
-            else:
-                baseline_export.append(np.zeros(ss.hh))
             next(tick)
 
             self.baseline_days.append(dt)
@@ -152,40 +155,42 @@ class Calculation:
             if days == days_required:
                 break
 
-        if days < days_required:
-            self.complete = False
+        if baseline_import:
+            self.baseline_import = np.asarray(baseline_import)
+            self.baseline = self.baseline_import.mean(axis=0)
+            if baseline_export:
+                self.baseline_export = np.asarray(baseline_export)
+                self.baseline = self.baseline - self.baseline_export.mean(axis=0)
 
-        self.baseline_import = np.asarray(baseline_import)
-        self.baseline_export = np.asarray(baseline_export)
-        # saving is calculated per settlement period (half hour), and only positive savings considered
-        if self.baseline_import.size and self.baseline_export.size:
-            self.baseline = (self.baseline_import - self.baseline_export).mean(axis=0)
-        else:
-            self.baseline = np.zeros(ss.hh)
-        self.kwh = (self.baseline - self.session_import + self.session_export).clip(
-            min=0
-        )
-        self.points = (
-            np.round(self.kwh * ss.rewardPerKwhInOctoPoints / 8).astype(int) * 8
-        )
-        self.reward = int(self.points.sum())
+            if self.session_import is not None:
+                session = self.session_import
+                if self.session_export is not None:
+                    session = session - self.session_export
+                # saving is calculated per settlement period (half hour), and only positive savings considered
+                self.kwh = (self.baseline - session).clip(min=0)
+                self.points = (
+                    np.round(self.kwh * self.ss.rewardPerKwhInOctoPoints / 8).astype(
+                        int
+                    )
+                    * 8
+                )
 
     def row(self):
-        if not self.complete:
-            return {
-                "session": self.ss.startAt,
-                "baseline": self.baseline.sum(),
-            }
-
-        return {
+        ret = {
             "session": self.ss.startAt,
-            "import": self.session_import.sum(),
-            "export": self.session_export.sum(),
-            "baseline": self.baseline.sum(),
-            "saved": self.kwh.sum(),
-            "reward": self.reward,
-            "earnings": self.reward / 800,
         }
+        if self.session_import is not None:
+            ret["import"] = self.session_import.sum()
+        if self.session_export is not None:
+            ret["export"] = self.session_export.sum()
+        if self.baseline is not None:
+            ret["baseline"] = self.baseline.sum()
+        if self.kwh is not None:
+            ret["saved"] = self.kwh.sum()
+            reward = int(self.points.sum())
+            ret["reward"] = reward
+            ret["earnings"] = reward / 800
+        return ret
 
 
 def error(msg: str):
@@ -251,7 +256,12 @@ def main():
         error("Sorry, it looks like you've not joined saving sessions.")
     if not res.signedUpMeterPoint:
         error("Sorry, it looks like you haven't a meter point for saving sessions.")
-    sessions = [session for session in res.sessions if session.id in res.joinedEvents]
+    now = pendulum.now()
+    sessions = [
+        session
+        for session in res.sessions
+        if session.id in res.joinedEvents or session.startAt > now
+    ]
     if not sessions:
         error("Not joined any saving sessions yet.")
     import_mpan = res.signedUpMeterPoint or ""
@@ -304,10 +314,8 @@ def main():
             start + ticks_per_session,
         )
         debug(f"session: {ss}")
-        calc = Calculation()
-        calc.calculate(
-            api, sessions, import_readings, export_readings, ss, ticks, debug
-        )
+        calc = Calculation(ss)
+        calc.calculate(api, sessions, import_readings, export_readings, ticks, debug)
         calcs.append(calc)
         rows.append(calc.row())
 
@@ -347,54 +355,46 @@ def main():
             ]
             days = [f"{day:%b %d}" for day in calc.baseline_days]
 
-            data = np.r_[
-                [timestamps],
-                calc.baseline_import,
-            ].T
-            st.dataframe(
-                data,
-                column_config={
-                    str(i): s for i, s in enumerate(["Baseline import"] + days)
-                },
-            )
+            if calc.baseline_import is not None:
+                data = np.r_[
+                    [timestamps],
+                    calc.baseline_import,
+                ].T
+                st.dataframe(
+                    data,
+                    column_config={
+                        str(i): s for i, s in enumerate(["Baseline import"] + days)
+                    },
+                )
 
-            data = np.r_[
-                [timestamps],
-                calc.baseline_export,
-            ].T
-            st.dataframe(
-                data,
-                column_config={
-                    str(i): s for i, s in enumerate(["Baseline export"] + days)
-                },
-            )
+            if calc.baseline_export is not None:
+                data = np.r_[
+                    [timestamps],
+                    calc.baseline_export,
+                ].T
+                st.dataframe(
+                    data,
+                    column_config={
+                        str(i): s for i, s in enumerate(["Baseline export"] + days)
+                    },
+                )
 
-            data = np.asarray(
-                [
-                    timestamps,
-                    calc.baseline_import.mean(axis=0).round(3)
-                    if calc.baseline_import.size
-                    else None,
-                    calc.baseline_export.mean(axis=0).round(3)
-                    if calc.baseline_export.size
-                    else None,
-                    calc.session_import,
-                    calc.session_export,
-                    calc.kwh.round(3),
-                    calc.points,
-                ]
-            ).T
+            data = {"Time": timestamps}
+            if calc.baseline_import is not None:
+                data["Baseline import"] = calc.baseline_import.mean(axis=0).round(3)
+            if calc.baseline_export is not None:
+                data["Baseline export"] = calc.baseline_export.mean(axis=0).round(3)
+            if calc.session_import is not None:
+                data["Session import"] = calc.session_import
+            if calc.session_export is not None:
+                data["Session export"] = calc.session_export
+            if calc.kwh is not None:
+                data["Net (kWh)"] = calc.kwh.round(3)
+                data["Points"] = calc.points
+
             st.dataframe(
-                data,
-                column_config={
-                    "0": "Time",
-                    "1": "Baseline import",
-                    "2": "Baseline export",
-                    "3": "Session import",
-                    "4": "Session export",
-                    "5": "Net (kWh)",
-                    "6": "Points",
-                },
+                np.asarray(list(data.values())).T,
+                column_config={str(i): header for i, header in enumerate(data.keys())},
             )
 
     bar.progress(1.0, text="Done")
