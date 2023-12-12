@@ -257,7 +257,7 @@ class API:
         ]
         a = data["savingSessions"]["account"]
         joinedEvents = [event["eventId"] for event in a["joinedEvents"]]
-        mpan = a["signedUpMeterPoint"]["mpan"] if a.get("signedUpMeterPoint") else None
+        mpan = (a.get("signedUpMeterPoint") or {}).get("mpan")
         return SavingSessionResponse(
             a["hasJoinedCampaign"], sessions, joinedEvents, mpan
         )
