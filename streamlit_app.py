@@ -264,7 +264,6 @@ def main():
     ]
     if not sessions:
         error("Not joined any saving sessions yet.")
-    import_mpan = res.signedUpMeterPoint or ""
 
     bar.progress(0.1, text="Getting meters...")
     agreements = api.agreements(account.number)
@@ -272,17 +271,26 @@ def main():
         error("No agreements on account")
 
     bar.progress(0.15, text="Getting tariffs...")
+    import_mpan = None
     export_mpan = None
     mpans: dict[str, ElectricityMeterPoint] = {}
     for agreement in agreements:
         debug(agreement)
         mpans[agreement.meterPoint.mpan] = agreement.meterPoint
-        if agreement.meterPoint.mpan == import_mpan:
+        if agreement.meterPoint.mpan == res.signedUpMeterPoint:
+            import_mpan = res.signedUpMeterPoint
             continue
         # Find export meter
         product = get_product(agreement.tariff.productCode)
         if product.direction == "EXPORT":
             export_mpan = agreement.meterPoint.mpan
+        elif not import_mpan:
+            import_mpan = agreement.meterPoint.mpan
+    debug(mpans)
+
+    if not import_mpan:
+        error("No import meter found.")
+        raise Exception("unreachable code")
 
     import_readings = Readings(mpans[import_mpan])
     if export_mpan:
@@ -290,7 +298,6 @@ def main():
     else:
         st.info("Import meter only", icon="ℹ️")
         export_readings = None
-    debug(mpans)
 
     calcs = []
     rows = []
