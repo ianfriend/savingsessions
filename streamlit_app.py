@@ -1,5 +1,6 @@
 from datetime import datetime
-from multiprocessing import Value
+from hashlib import sha256
+import hashlib
 import numpy as np
 import pendulum
 import streamlit as st
@@ -10,6 +11,7 @@ from api import (
     ElectricityMeterPoint,
     SavingSession,
 )
+import db
 
 
 @st.cache_data(ttl=None)  # never expire
@@ -192,6 +194,22 @@ class Calculation:
             ret["earnings"] = reward / 800
         return ret
 
+    def dbrow(self, id_lookup: dict):
+        ret = {
+            "saving_session_id": id_lookup[self.ss.code],
+        }
+        if self.session_import is not None:
+            ret["session_import"] = self.session_import.sum()
+        if self.session_export is not None:
+            ret["session_export"] = self.session_export.sum()
+        if self.baseline_import is not None:
+            ret["baseline_import"] = self.baseline_import.mean(axis=0).sum()
+        if self.baseline_export is not None:
+            ret["baseline_export"] = self.baseline_export.mean(axis=0).sum()
+        if self.points is not None:
+            ret["points"] = int(self.points.sum())
+        return ret
+
 
 def error(msg: str):
     st.error(msg, icon="⚠️")
@@ -207,9 +225,6 @@ def debug_noop(msg):
 
 
 def main():
-    debug = (
-        debug_message if "debug" in st.experimental_get_query_params() else debug_noop
-    )
     st.set_page_config(page_icon="🐙", page_title="Octopus Saving Sessions calculator")
     st.header("🐙 Octopus Saving Sessions calculator")
 
@@ -234,6 +249,54 @@ def main():
 
     st.info("Tip: bookmark this url to return with your API key remembered.", icon="🔖")
 
+    calcs = results(api_key)
+    complete = [calc for calc in calcs if calc.points is not None]
+
+    if complete:
+        st.subheader("Enter the league!")
+        st.write(
+            "For a bit of fun you can add your results to our league table. This will enter you for the above results for all complete sessions."
+        )
+        name = st.text_input("Name or alias")
+        if st.button("Submit", disabled=not (name)):
+            with st.spinner("Entering..."):
+                account_no = get_account_number(api_key)
+                sessions = db.saving_sessions()
+                id_lookup = {s["code"]: s["id"] for s in sessions}
+                # store the hash of account for privacy
+                account_hash = hashlib.sha256(account_no.encode("utf-8")).hexdigest()
+                common = {
+                    "account": account_hash,
+                    "username": name,
+                }
+                rows = [calc.dbrow(id_lookup) | common for calc in complete]
+                db.upsert_results(rows)
+
+            st.write(
+                "🎉 Entered! Go check out your placement in the [league tables](/League)"
+            )
+            db.results.clear()  # expire cache
+
+
+def get_account_number(api_key):
+    api = API()
+    try:
+        api.authenticate(api_key)
+    except AuthenticationError:
+        error("Authentication error, check your API key")
+
+    accounts = api.accounts()
+    if not accounts:
+        error("No accounts found")
+    account = accounts[0]
+    return account.number
+
+
+@st.cache_data(ttl="600s", show_spinner=False)
+def results(api_key):
+    debug = (
+        debug_message if "debug" in st.experimental_get_query_params() else debug_noop
+    )
     bar = st.progress(0, text="Authenticating...")
 
     api = API()
@@ -437,6 +500,8 @@ def main():
             continue
         ts = row["session"]
         st.info(f"Session on {ts:%Y/%m/%d} is awaiting readings...", icon="⌛")
+
+    return calcs
 
 
 if __name__ == "__main__":
