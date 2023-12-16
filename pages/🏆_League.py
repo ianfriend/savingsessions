@@ -45,11 +45,11 @@ def app():
         column_config={
             "position": "Position",
             "username": "Username",
-            "baseline_import": "Baseline import",
-            "baseline_export": "Baseline export",
-            "session_import": "Session import",
-            "session_export": "Session export",
-            "points": "Points",
+            "baseline_import": st.column_config.NumberColumn("Baseline import", format="%.2f kWh"),
+            "baseline_export": st.column_config.NumberColumn("Baseline export", format="%.2f kWh"),
+            "session_import": st.column_config.NumberColumn("Session import", format="%.2f kWh"),
+            "session_export": st.column_config.NumberColumn("Session export", format="%.2f kWh"),
+            "points": st.column_config.NumberColumn("Points"),
         },
     )
 
