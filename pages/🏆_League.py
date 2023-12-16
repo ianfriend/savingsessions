@@ -39,7 +39,7 @@ def app():
         return
 
     medals = {1: "🥇", 2: "🥈", 3: "🥉"}
-    rows = [{"position": medals.get(pos, pos)} | result for pos, result in enumerate(results, 1)]
+    rows = [{"position": medals.get(pos, str(pos))} | result for pos, result in enumerate(results, 1)]
     st.dataframe(
         rows,
         column_config={
