@@ -39,9 +39,13 @@ def app():
         return
 
     medals = {1: "🥇", 2: "🥈", 3: "🥉"}
-    rows = [{"position": medals.get(pos, str(pos))} | result for pos, result in enumerate(results, 1)]
+    rows = [
+        {"position": medals.get(pos, str(pos))} | result | {"earnings": result["points"] / 800}
+        for pos, result in enumerate(results, 1)
+    ]
     st.dataframe(
         rows,
+        height=800,
         column_config={
             "position": "Position",
             "username": "Username",
@@ -50,6 +54,7 @@ def app():
             "session_import": st.column_config.NumberColumn("Session import", format="%.2f kWh"),
             "session_export": st.column_config.NumberColumn("Session export", format="%.2f kWh"),
             "points": st.column_config.NumberColumn("Points"),
+            "earnings": st.column_config.NumberColumn("Earnings", format="£%.2f"),
         },
     )
 
