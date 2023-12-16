@@ -12,7 +12,7 @@ def session():
 
 @st.cache_data(ttl=600)
 def saving_sessions():
-    response = session().table("saving_sessions").select("*").execute()
+    response = session().table("saving_sessions").select("*").order("timestamp", desc=True).execute()
     return response.data
 
 
