@@ -1,4 +1,5 @@
 import hashlib
+
 import numpy as np
 import pendulum
 import streamlit as st
@@ -35,17 +36,15 @@ def main():
     st.header("🐙 Octopus Saving Sessions calculator")
 
     st.subheader("Your Octopus API Key")
-    st.markdown(
-        "Find this in your online dashboard: https://octopus.energy/dashboard/developer/"
-    )
-    if "api_key" not in st.session_state and (
-        api_key := st.experimental_get_query_params().get("api_key")
-    ):
+    st.markdown("Find this in your online dashboard: https://octopus.energy/dashboard/developer/")
+    if "api_key" not in st.session_state and (api_key := st.experimental_get_query_params().get("api_key")):
         st.session_state["api_key"] = api_key[0]
     api_key = st.text_input("API key:", key="api_key", placeholder="sk_live_...")
     if not api_key:
         st.info(
-            "This app never stores your API key. If you have any concerns you can check out the [source code](https://github.com/barnybug/savingsessions) for the app, and please by all means 'Regenerate' your key at the link above after using this."
+            "This app never stores your API key. If you have any concerns you can check out the [source code]"
+            "(https://github.com/barnybug/savingsessions) for the app, and please by all means 'Regenerate' your key at"
+            " the link above after using this."
         )
         st.stop()
 
@@ -61,10 +60,14 @@ def main():
     if complete:
         st.subheader("Enter the league!")
         st.write(
-            "For a bit of fun you can add your results to our league table. This will enter you for the above results for all complete sessions."
+            "For a bit of fun you can add your results to our league table. This will enter you for the above results"
+            " for all complete sessions."
         )
-        name = st.text_input("Name or alias")
-        if st.button("Submit", disabled=not (name)):
+        name = st.text_input(
+            "Name or alias", max_chars=80, placeholder="Please enter your name or alias 😎", key="name_input"
+        )
+        name = name.strip()
+        if st.button("Submit") and name:
             with st.spinner("Entering..."):
                 account_no = get_account_number(api_key)
                 sessions = db.saving_sessions()
@@ -78,9 +81,7 @@ def main():
                 rows = [calc.dbrow(id_lookup) | common for calc in complete]
                 db.upsert_results(rows)
 
-            st.write(
-                "🎉 Entered! Go check out your placement in the [league tables](/League)"
-            )
+            st.write("🎉 Entered! Go check out your placement in the [league tables](/League)")
             db.results.clear()  # expire cache
 
 
@@ -100,9 +101,7 @@ def get_account_number(api_key):
 
 @st.cache_data(ttl="600s", show_spinner=False)
 def results(api_key):
-    debug = (
-        debug_message if "debug" in st.experimental_get_query_params() else debug_noop
-    )
+    debug = debug_message if "debug" in st.experimental_get_query_params() else debug_noop
     bar = st.progress(0, text="Authenticating...")
 
     api = API()
@@ -126,11 +125,7 @@ def results(api_key):
     if not res.signedUpMeterPoint:
         error("Sorry, it looks like you haven't a meter point for saving sessions.")
     now = pendulum.now()
-    sessions = [
-        session
-        for session in res.sessions
-        if session.id in res.joinedEvents or session.startAt > now
-    ]
+    sessions = [session for session in res.sessions if session.id in res.joinedEvents or session.startAt > now]
     if not sessions:
         error("Not joined any saving sessions yet.")
 
@@ -201,23 +196,13 @@ def results(api_key):
             st.dataframe(
                 rows,
                 column_config={
-                    "session": st.column_config.DatetimeColumn(
-                        "Session", format="YYYY/MM/DD HH:mm"
-                    ),
-                    "import": st.column_config.NumberColumn(
-                        "Imported", format="%.2f kWh"
-                    ),
-                    "export": st.column_config.NumberColumn(
-                        "Exported", format="%.2f kWh"
-                    ),
-                    "baseline": st.column_config.NumberColumn(
-                        "Baseline", format="%.2f kWh"
-                    ),
+                    "session": st.column_config.DatetimeColumn("Session", format="YYYY/MM/DD HH:mm"),
+                    "import": st.column_config.NumberColumn("Imported", format="%.2f kWh"),
+                    "export": st.column_config.NumberColumn("Exported", format="%.2f kWh"),
+                    "baseline": st.column_config.NumberColumn("Baseline", format="%.2f kWh"),
                     "saved": st.column_config.NumberColumn("Saved", format="%.2f kWh"),
                     "reward": st.column_config.NumberColumn("Reward"),
-                    "earnings": st.column_config.NumberColumn(
-                        "Earnings", format="£%.2f"
-                    ),
+                    "earnings": st.column_config.NumberColumn("Earnings", format="£%.2f"),
                 },
             )
 
@@ -236,13 +221,7 @@ def results(api_key):
                 ):
                     markdown += "|"
                     if key in row:
-                        fmt = (
-                            "£%.2f"
-                            if key == "earnings"
-                            else "%d"
-                            if key == "reward"
-                            else "%.3f"
-                        )
+                        fmt = "£%.2f" if key == "earnings" else "%d" if key == "reward" else "%.3f"
                         markdown += fmt % row[key]
                 markdown += "|\n"
             st.code(markdown, language="markdown")
@@ -251,9 +230,7 @@ def results(api_key):
         with st.expander(f"Session {ss.startAt:%b %d %Y} breakdown"):
             timestamps = [
                 ts.strftime("%H:%M")
-                for ts in pendulum.period(
-                    ss.startAt, ss.endAt - pendulum.duration(minutes=30)
-                ).range("minutes", 30)
+                for ts in pendulum.period(ss.startAt, ss.endAt - pendulum.duration(minutes=30)).range("minutes", 30)
             ]
             days = [f"{day:%b %d}" for day in calc.baseline_days]
 
@@ -264,9 +241,7 @@ def results(api_key):
                 ].T
                 st.dataframe(
                     data,
-                    column_config={
-                        str(i): s for i, s in enumerate(["Baseline import"] + days)
-                    },
+                    column_config={str(i): s for i, s in enumerate(["Baseline import"] + days)},
                 )
 
             if calc.baseline_export is not None:
@@ -276,9 +251,7 @@ def results(api_key):
                 ].T
                 st.dataframe(
                     data,
-                    column_config={
-                        str(i): s for i, s in enumerate(["Baseline export"] + days)
-                    },
+                    column_config={str(i): s for i, s in enumerate(["Baseline export"] + days)},
                 )
 
             data = {"Time": timestamps}

@@ -1,6 +1,6 @@
+import streamlit as st
 import supabase
 from postgrest.exceptions import APIError
-import streamlit as st
 
 
 @st.cache_resource
@@ -21,9 +21,7 @@ def results(ss_id):
     response = (
         session()
         .table("results")
-        .select(
-            "username,baseline_import,baseline_export,session_import,session_export,points"
-        )
+        .select("username,baseline_import,baseline_export,session_import,session_export,points")
         .eq("saving_session_id", ss_id)
         .order("points", desc=True)
         .execute()

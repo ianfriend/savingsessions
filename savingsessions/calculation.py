@@ -1,7 +1,6 @@
 from datetime import datetime
+
 import numpy as np
-
-
 import pendulum
 
 from .api import API, ElectricityMeterPoint, SavingSession
@@ -39,17 +38,11 @@ class Readings:
                 before=None,
             )
             if readings:
-                debug(
-                    f"Received {len(readings)} readings from {readings[0].startAt} to {readings[-1].endAt}"
-                )
-                self.requested.update(
-                    pendulum.period(start_at, readings[-1].startAt).range("minutes", 30)
-                )
+                debug(f"Received {len(readings)} readings from {readings[0].startAt} to {readings[-1].endAt}")
+                self.requested.update(pendulum.period(start_at, readings[-1].startAt).range("minutes", 30))
             else:
                 debug("Received no readings")
-                self.requested.update(
-                    pendulum.period(start_at, start_at + phh(99)).range("minutes", 30)
-                )
+                self.requested.update(pendulum.period(start_at, start_at + phh(99)).range("minutes", 30))
 
             for reading in readings:
                 self.hh[reading.startAt] = reading.value
@@ -58,7 +51,7 @@ class Readings:
             values = [self.hh[t] for t in half_hours]
             return np.array(values)
         except KeyError:
-            raise ValueError("missing readings")
+            raise ValueError("missing readings") from None
 
 
 class Calculation:
@@ -82,18 +75,14 @@ class Calculation:
         tick,
         debug,
     ):
-        # Baseline from meter readings from the same time as the Session over the past 10 weekdays (excluding any days with a Saving Session),
-        # past 4 weekend days if Saving Session is on a weekend.
+        # Baseline from meter readings from the same time as the Session over the past 10 weekdays (excluding any days
+        # with a Saving Session), past 4 weekend days if Saving Session is on a weekend.
         days_required = 10 if weekday(self.ss.startAt) else 4
         previous_session_days = {ss.startAt.date() for ss in sessions}
-        previous = pendulum.period(
-            self.ss.startAt.subtract(days=1), self.ss.startAt.subtract(days=61)
-        )
+        previous = pendulum.period(self.ss.startAt.subtract(days=1), self.ss.startAt.subtract(days=61))
 
         try:
-            self.session_import = import_readings.get_readings(
-                api, self.ss.startAt, self.ss.hh, debug
-            )
+            self.session_import = import_readings.get_readings(api, self.ss.startAt, self.ss.hh, debug)
             debug(f"session import: {self.session_import}")
         except ValueError:
             # incomplete, but useful to still calculate baseline
@@ -102,9 +91,7 @@ class Calculation:
 
         if export_readings:
             try:
-                self.session_export = export_readings.get_readings(
-                    api, self.ss.startAt, self.ss.hh, debug
-                )
+                self.session_export = export_readings.get_readings(api, self.ss.startAt, self.ss.hh, debug)
                 debug(f"session export: {self.session_export}")
             except ValueError:
                 debug("missing export readings")
@@ -130,9 +117,7 @@ class Calculation:
 
             if export_readings:
                 try:
-                    export_values = export_readings.get_readings(
-                        api, dt, self.ss.hh, debug
-                    )
+                    export_values = export_readings.get_readings(api, dt, self.ss.hh, debug)
                     baseline_export.append(export_values)
                     debug(f"baseline day #{days}: {dt} export: {export_values}")
                 except ValueError:
@@ -157,12 +142,7 @@ class Calculation:
                     session = session - self.session_export
                 # saving is calculated per settlement period (half hour), and only positive savings considered
                 self.kwh = (self.baseline - session).clip(min=0)
-                self.points = (
-                    np.round(self.kwh * self.ss.rewardPerKwhInOctoPoints / 8).astype(
-                        int
-                    )
-                    * 8
-                )
+                self.points = np.round(self.kwh * self.ss.rewardPerKwhInOctoPoints / 8).astype(int) * 8
 
     def row(self):
         ret = {

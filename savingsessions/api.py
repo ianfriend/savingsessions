@@ -1,8 +1,9 @@
 import logging
-import requests
-from datetime import datetime, timezone
 from dataclasses import dataclass
+from datetime import datetime, timezone
+
 import pendulum
+import requests
 
 
 def parse_timestamp(s):
@@ -130,11 +131,7 @@ class API:
             resp.raise_for_status()
         self.logger.debug("response: %s", resp.text)
         if errors := resp.json().get("errors"):
-            if any(
-                "extensions" in error
-                and error["extensions"]["errorCode"] == "KT-CT-1139"
-                for error in errors
-            ):
+            if any("extensions" in error and error["extensions"]["errorCode"] == "KT-CT-1139" for error in errors):
                 raise AuthenticationError(errors[0]["extensions"]["errorDescription"])
             raise APIError(errors)
         return resp.json()["data"]
@@ -197,9 +194,7 @@ class API:
         data = self._request(query, code=code)
         return EnergyProduct(**data["energyProduct"])
 
-    def half_hourly_readings(
-        self, mpan: str, meter: str, start_at: datetime, first: int, before: str | None
-    ):
+    def half_hourly_readings(self, mpan: str, meter: str, start_at: datetime, first: int, before: str | None):
         query = """query halfHourlyReadings($mpan: ID, $meter: Int, $startAt: DateTime!, $first: Int, $before: String) {
   meterPoints(mpan: $mpan) {
     meters(id: $meter) {
@@ -252,12 +247,8 @@ class API:
 }
         """
         data = self._request(query, account=account)
-        sessions = [
-            SavingSession(**event) for event in data["savingSessions"]["events"]
-        ]
+        sessions = [SavingSession(**event) for event in data["savingSessions"]["events"]]
         a = data["savingSessions"]["account"]
         joinedEvents = [event["eventId"] for event in a["joinedEvents"]]
         mpan = (a.get("signedUpMeterPoint") or {}).get("mpan")
-        return SavingSessionResponse(
-            a["hasJoinedCampaign"], sessions, joinedEvents, mpan
-        )
+        return SavingSessionResponse(a["hasJoinedCampaign"], sessions, joinedEvents, mpan)
