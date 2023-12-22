@@ -125,6 +125,7 @@ def results(api_key):
     if not res.signedUpMeterPoint:
         error("Sorry, it looks like you haven't a meter point for saving sessions.")
     now = pendulum.now()
+    all_sessions = res.sessions
     sessions = [session for session in res.sessions if session.id in res.joinedEvents or session.startAt > now]
     if not sessions:
         error("Not joined any saving sessions yet.")
@@ -186,7 +187,7 @@ def results(api_key):
         )
         debug(f"session: {ss}")
         calc = calculation.Calculation(ss)
-        calc.calculate(api, sessions, import_readings, export_readings, ticks, debug)
+        calc.calculate(api, all_sessions, import_readings, export_readings, ticks, debug)
         calcs.append(calc)
         rows.append(calc.row())
 
