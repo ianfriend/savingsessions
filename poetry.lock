@@ -1344,7 +1344,7 @@ version = "1.28.2"
 description = "A faster way to build and share data apps"
 category = "main"
 optional = false
-python-versions = ">=3.8, !=3.9.7"
+python-versions = ">=3.11"
 files = [
     {file = "streamlit-1.28.2-py2.py3-none-any.whl", hash = "sha256:cc144c4741a1bd850ccd13f1ef18fad170718242dd7930f4ae36e238d08ecd22"},
     {file = "streamlit-1.28.2.tar.gz", hash = "sha256:c144168881bf7bd6d6017a9bfde585b52d20087b10b2d5c85d376ef6d52aa8ee"},
