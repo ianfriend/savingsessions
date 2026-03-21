@@ -111,18 +111,19 @@ class AuthenticationError(APIError):
 
 class API:
     base_url = "https://api.octopus.energy/v1/graphql/"
+    backend_url = "https://api.backend.octopus.energy/v1/graphql/"
     logger = logging.getLogger("graphql")
 
     def __init__(self):
         self.token = None
 
-    def _request(self, query, **variables):
+    def _request(self, query, backend=False, **variables):
         headers = {"User-Agent": "https://savingsessions.streamlit.app/"}
         if self.token:
             headers["Authorization"] = self.token
         self.logger.debug("request: %s variables: %r", query, variables)
         resp = requests.post(
-            self.base_url,
+            self.backend_url if backend else self.base_url,
             json={"query": query, "variables": variables},
             headers=headers,
         )
@@ -246,7 +247,7 @@ class API:
   }
 }
         """
-        data = self._request(query, account=account)
+        data = self._request(query, backend=True, account=account)
         sessions = [SavingSession(**event) for event in data["savingSessions"]["events"]]
         a = data["savingSessions"]["account"]
         joinedEvents = [event["eventId"] for event in a["joinedEvents"]]
