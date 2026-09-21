@@ -32,5 +32,5 @@ def get_account_number(api_key):
     accounts = api.accounts()
     if not accounts:
         error("No accounts found")
-    account = accounts[0]
+    account = accounts[1]
     return account.number
