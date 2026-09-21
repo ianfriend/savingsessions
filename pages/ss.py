@@ -85,15 +85,20 @@ def results(api_key):
     if not accounts:
         error("No accounts found")
 
-    for account in accounts:
-        debug(account)
+    # for account in accounts:
+    #     debug(account)
 
-        bar.progress(0.07, text="Getting meters...")
-        agreements = api.agreements(account.number)
-        if agreements:
-            break
-    else:
-        error("No agreements on account")
+    #     bar.progress(0.07, text="Getting meters...")
+    #     agreements = api.agreements(account.number)
+    #     if agreements:
+    #         break
+    # else:
+    #     error("No agreements on account")
+    account = accounts[1]
+    debug(account)
+
+    bar.progress(0.07, text="Getting meters...")
+    agreements = api.agreements(account.number)
 
     bar.progress(0.1, text="Getting sessions...")
     res = api.saving_sessions(account.number)
